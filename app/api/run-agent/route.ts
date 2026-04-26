@@ -6,12 +6,21 @@ import { NextRequest, NextResponse } from 'next/server';
 const SKILL_ALIASES: Record<string, string[]> = {
   'mern': ['MongoDB', 'Express.js', 'React', 'Node.js'],
   'mean': ['MongoDB', 'Express.js', 'Angular', 'Node.js'],
-  'jamstack': ['JavaScript', 'API', 'Markup'],
+  'jamstack': ['JavaScript', 'React', 'AWS'],
   'lamp': ['Linux', 'Apache', 'MySQL', 'PHP'],
-  'full stack': ['Frontend', 'Backend', 'Database'],
-  'frontend': ['HTML', 'CSS', 'JavaScript'],
-  'backend': ['Server', 'API', 'Database'],
+  'full stack': ['React', 'Node.js', 'MongoDB'],
+  'frontend developer': ['React', 'TypeScript', 'Tailwind CSS'],
+  'backend developer': ['Node.js', 'Express.js', 'PostgreSQL'],
+  'java backend': ['Java', 'Spring Boot', 'MySQL'],
 };
+
+// ─── GENERIC SKILLS BLACKLIST ─────────────────────────────────────
+// These are NOT real technologies — filter them out completely
+const GENERIC_SKILLS_BLACKLIST = new Set([
+  'backend', 'frontend', 'database', 'server', 'api', 'html', 'css',
+  'markup', 'linux', 'apache', 'programming', 'development', 'software',
+  'web development', 'mobile development', 'data', 'distributed systems',
+]);
 
 const SKILL_KEYWORDS: Record<string, string> = {
   // Languages
@@ -78,30 +87,53 @@ const TECH_DOMAINS: Record<string, string[]> = {
   'mobile': ['React Native', 'Flutter', 'Swift', 'Kotlin'],
 };
 
+// ─── SKILL WEIGHTING SYSTEM ──────────────────────────────────────
+// Core skills are critical (weight 2), secondary are nice-to-have (weight 1)
+// This prevents generic terms from inflating scores
+const SKILL_WEIGHTS: Record<string, number> = {
+  // Languages (core, weight 2)
+  'Java': 2, 'Python': 2, 'JavaScript': 2, 'TypeScript': 2, 'Go': 2, 'Rust': 2,
+  'Ruby': 2, 'PHP': 2, 'C#': 2, 'C++': 2, 'Kotlin': 2,
+  // Frameworks (core, weight 2)
+  'React': 2, 'Vue.js': 2, 'Angular': 2, 'Node.js': 2, 'Express.js': 2,
+  'Django': 2, 'Flask': 2, 'FastAPI': 2, 'Spring Boot': 2, 'Next.js': 2,
+  'Ruby on Rails': 2, 'Svelte': 2, '.NET': 2, 'ASP.NET': 2,
+  // Databases (core, weight 2)
+  'PostgreSQL': 2, 'MySQL': 2, 'MongoDB': 2, 'Redis': 2, 'Cassandra': 2,
+  // DevOps (core, weight 2)
+  'Docker': 2, 'Kubernetes': 2, 'AWS': 2, 'Azure': 2, 'GCP': 2,
+  // Complementary tools (secondary, weight 1)
+  'TypeScript': 1, 'Redux': 1, 'Tailwind CSS': 1, 'Bootstrap': 1,
+  'REST API': 1, 'GraphQL': 1, 'Microservices': 1, 'CI/CD': 1,
+  'Terraform': 1, 'Ansible': 1, 'Jenkins': 1, 'GitHub Actions': 1,
+  'TensorFlow': 1, 'PyTorch': 1, 'Pandas': 1, 'NumPy': 1,
+  'Machine Learning': 1, 'Deep Learning': 1, 'Data Engineering': 1,
+};
+
 // Adjacent skills: for each skill, what are reasonable "extra" skills a candidate might have
 const ADJACENT_SKILLS: Record<string, string[]> = {
-  'React': ['TypeScript', 'Redux', 'Next.js', 'Tailwind CSS', 'Jest', 'Webpack'],
+  'React': ['TypeScript', 'Redux', 'Next.js', 'Tailwind CSS', 'Jest'],
   'Vue.js': ['TypeScript', 'Nuxt.js', 'Vuex', 'Tailwind CSS'],
   'Angular': ['TypeScript', 'RxJS', 'NgRx'],
-  'Node.js': ['Express.js', 'TypeScript', 'NestJS', 'Fastify'],
+  'Node.js': ['Express.js', 'TypeScript', 'NestJS'],
   'Express.js': ['Node.js', 'TypeScript', 'MongoDB', 'Redis'],
-  'Java': ['Spring Boot', 'Spring', 'Maven', 'Gradle', 'Hibernate'],
-  'Spring Boot': ['Java', 'Maven', 'Hibernate', 'MySQL', 'PostgreSQL', 'Microservices'],
-  'Python': ['Django', 'Flask', 'FastAPI', 'Pandas', 'NumPy', 'Celery'],
-  'Django': ['Python', 'PostgreSQL', 'Redis', 'Celery'],
+  'Java': ['Spring Boot', 'Spring', 'Maven', 'Gradle'],
+  'Spring Boot': ['Java', 'Maven', 'MySQL', 'PostgreSQL', 'Microservices'],
+  'Python': ['Django', 'Flask', 'FastAPI', 'Pandas', 'NumPy'],
+  'Django': ['Python', 'PostgreSQL', 'Redis'],
   'MongoDB': ['Node.js', 'Express.js', 'Mongoose'],
-  'PostgreSQL': ['SQL', 'Prisma', 'TypeORM', 'Hibernate'],
-  'MySQL': ['SQL', 'Prisma', 'TypeORM', 'Hibernate'],
+  'PostgreSQL': ['TypeORM', 'Hibernate', 'Django'],
+  'MySQL': ['TypeORM', 'Hibernate', 'Laravel'],
   'Docker': ['Kubernetes', 'CI/CD', 'AWS', 'Terraform'],
-  'Kubernetes': ['Docker', 'Helm', 'AWS', 'Terraform'],
-  'AWS': ['Docker', 'Kubernetes', 'Terraform', 'Lambda', 'S3'],
+  'Kubernetes': ['Docker', 'AWS', 'Terraform'],
+  'AWS': ['Docker', 'Kubernetes', 'Terraform'],
   'GraphQL': ['Apollo', 'TypeScript', 'React', 'Node.js'],
-  'Machine Learning': ['Python', 'TensorFlow', 'PyTorch', 'Pandas', 'NumPy'],
+  'Machine Learning': ['Python', 'TensorFlow', 'PyTorch', 'Pandas'],
   'TypeScript': ['React', 'Node.js', 'Next.js'],
-  'REST API': ['Node.js', 'Express.js', 'Spring Boot', 'Django', 'FastAPI'],
-  'Microservices': ['Docker', 'Kubernetes', 'Kafka', 'RabbitMQ', 'Spring Boot'],
-  'Redis': ['Node.js', 'Python', 'Docker', 'AWS'],
-  'Kafka': ['Java', 'Spring Boot', 'Microservices', 'Docker'],
+  'REST API': ['Node.js', 'Express.js', 'Spring Boot', 'Django'],
+  'Microservices': ['Docker', 'Kubernetes', 'Kafka', 'Spring Boot'],
+  'Redis': ['Node.js', 'Python', 'Docker'],
+  'Kafka': ['Java', 'Spring Boot', 'Microservices'],
 };
 
 // ─── Name & Profile Data ────────────────────────────────────────────
@@ -152,6 +184,36 @@ const CONVERSATION_TEMPLATES = {
   ],
 };
 
+// ─── Domain Detection ────────────────────────────────────────────
+// Detect the role type from the JD to apply smart skill normalization
+function detectRoleDomain(jd: string): 'mern' | 'java_backend' | 'python_backend' | 'devops' | 'data_ml' | 'frontend' | 'generic' {
+  const jdLower = jd.toLowerCase();
+  
+  if ((jdLower.includes('machine learning') || jdLower.includes('ml') || jdLower.includes('data scientist')) && 
+      (jdLower.includes('python') || jdLower.includes('tensorflow') || jdLower.includes('pytorch'))) {
+    return 'data_ml';
+  }
+  if ((jdLower.includes('devops') || jdLower.includes('kubernetes') || jdLower.includes('docker') || jdLower.includes('infrastructure')) &&
+      !jdLower.includes('react')) {
+    return 'devops';
+  }
+  if ((jdLower.includes('java') || jdLower.includes('spring boot')) && !jdLower.includes('react')) {
+    return 'java_backend';
+  }
+  if ((jdLower.includes('python') && (jdLower.includes('django') || jdLower.includes('flask'))) && !jdLower.includes('react')) {
+    return 'python_backend';
+  }
+  if ((jdLower.includes('mern') || (jdLower.includes('react') && jdLower.includes('node'))) || 
+      (jdLower.includes('full stack') && (jdLower.includes('react') || jdLower.includes('javascript')))) {
+    return 'mern';
+  }
+  if ((jdLower.includes('frontend') || jdLower.includes('react') || jdLower.includes('vue') || jdLower.includes('angular')) && 
+      !jdLower.includes('backend') && !jdLower.includes('full')) {
+    return 'frontend';
+  }
+  return 'generic';
+}
+
 // ─── Utility Functions ──────────────────────────────────────────────
 
 function pickRandom<T>(arr: T[], count: number): T[] {
@@ -186,7 +248,8 @@ function extractSkillsFromJD(jd: string): string[] {
     if (jdLower.includes(alias.toLowerCase())) {
       for (const skill of expanded) {
         const key = skill.toLowerCase();
-        if (!seen.has(key)) {
+        // Reject generic skills immediately
+        if (!GENERIC_SKILLS_BLACKLIST.has(key) && !seen.has(key)) {
           skills.push(skill);
           seen.add(key);
         }
@@ -201,7 +264,8 @@ function extractSkillsFromJD(jd: string): string[] {
 
   for (const [keyword, canonical] of sortedKeywords) {
     const key = canonical.toLowerCase();
-    if (seen.has(key)) continue;
+    // Skip if already added OR if it's a blacklisted generic skill
+    if (seen.has(key) || GENERIC_SKILLS_BLACKLIST.has(key)) continue;
 
     // Use word boundary matching for short keywords to avoid false positives
     const regex = keyword.length <= 3
@@ -211,6 +275,24 @@ function extractSkillsFromJD(jd: string): string[] {
     if (regex.test(jd)) {
       skills.push(canonical);
       seen.add(key);
+    }
+  }
+
+  // If no real skills found after blacklist, provide intelligent defaults based on domain
+  if (skills.length === 0) {
+    const domain = detectRoleDomain(jd);
+    if (domain === 'mern') {
+      skills.push(...['React', 'Node.js', 'MongoDB']);
+    } else if (domain === 'java_backend') {
+      skills.push(...['Java', 'Spring Boot', 'MySQL']);
+    } else if (domain === 'python_backend') {
+      skills.push(...['Python', 'Django', 'PostgreSQL']);
+    } else if (domain === 'devops') {
+      skills.push(...['Docker', 'Kubernetes', 'AWS']);
+    } else if (domain === 'data_ml') {
+      skills.push(...['Python', 'Machine Learning', 'TensorFlow']);
+    } else if (domain === 'frontend') {
+      skills.push(...['React', 'TypeScript', 'Tailwind CSS']);
     }
   }
 
@@ -440,45 +522,72 @@ function filterCandidates(candidates: RawCandidate[], requiredSkills: string[]):
   });
 }
 
-// ─── Step 4: Match Score (strict math) ─────────────────────────────
+// ─── Step 4: Weighted Match Score (intelligent scoring) ──────────
 
-function calculateMatchScore(candidateSkills: string[], requiredSkills: string[]): {
+function calculateWeightedMatchScore(candidateSkills: string[], requiredSkills: string[]): {
   score: number; matched: string[]; missing: string[];
 } {
-  const matched = candidateSkills.filter(s =>
-    requiredSkills.some(r => r.toLowerCase() === s.toLowerCase())
-  );
+  const matched: string[] = [];
+  let matchedWeight = 0;
+  let totalWeight = 0;
+
+  // Calculate weights for required skills
+  for (const req of requiredSkills) {
+    const weight = SKILL_WEIGHTS[req] || 1;
+    totalWeight += weight;
+    
+    if (candidateSkills.some(c => c.toLowerCase() === req.toLowerCase())) {
+      matched.push(req);
+      matchedWeight += weight;
+    }
+  }
+
+  // Missing skills
   const missing = requiredSkills.filter(r =>
     !candidateSkills.some(s => s.toLowerCase() === r.toLowerCase())
   );
-  const score = requiredSkills.length > 0
-    ? Math.round((matched.length / requiredSkills.length) * 100)
+
+  // Weighted score formula: (matchedWeight / totalWeight) * 100
+  const score = totalWeight > 0
+    ? Math.round((matchedWeight / totalWeight) * 100)
     : 0;
+
   return { score, matched, missing };
 }
 
-// ─── Step 5: Interest Score (rule-based) ────────────────────────────
+// ─── Step 5: Interest Score (realistic randomized) ────────────────
 
 function calculateInterestScore(matchScore: number): { score: number; reason: string } {
-  if (matchScore > 70) {
-    const score = 90 + Math.floor(Math.random() * 11); // 90-100
-    return {
-      score,
-      reason: `Match score of ${matchScore}% indicates strong alignment — candidate is highly likely to be interested and responsive to outreach.`,
-    };
+  let score: number;
+  let reason: string;
+  
+  if (matchScore >= 85) {
+    // Strong match: 80-95 range with good variation
+    score = 80 + Math.floor(Math.random() * 16);
+    reason = `Perfect skill alignment at ${matchScore}% — candidate is actively interested in this exact domain and likely seeking roles like this.`;
+  } else if (matchScore >= 70) {
+    // Good match: 75-92 range
+    score = 75 + Math.floor(Math.random() * 18);
+    reason = `Strong skill overlap at ${matchScore}% — candidate is very likely interested; may see some growth opportunities.`;
+  } else if (matchScore >= 55) {
+    // Moderate match: 55-78 range
+    score = 55 + Math.floor(Math.random() * 24);
+    reason = `Moderate alignment at ${matchScore}% — candidate has core skills but would need to develop additional expertise.`;
+  } else if (matchScore >= 40) {
+    // Partial match: 40-65 range
+    score = 40 + Math.floor(Math.random() * 26);
+    reason = `Partial skill overlap at ${matchScore}% — candidate could transition to this role with some ramp-up time.`;
+  } else if (matchScore >= 25) {
+    // Weak match: 15-45 range
+    score = 15 + Math.floor(Math.random() * 31);
+    reason = `Limited alignment at ${matchScore}% — candidate is likely focused elsewhere but could be intrigued by growth potential.`;
+  } else {
+    // Very weak match: 5-20 range
+    score = 5 + Math.floor(Math.random() * 16);
+    reason = `Minimal overlap at ${matchScore}% — candidate is pursuing a different technology path and unlikely to engage.`;
   }
-  if (matchScore >= 40) {
-    const score = 50 + Math.floor(Math.random() * 21); // 50-70
-    return {
-      score,
-      reason: `Match score of ${matchScore}% shows partial alignment — candidate may be open but would need to ramp up on missing skills.`,
-    };
-  }
-  const score = 10 + Math.floor(Math.random() * 21); // 10-30
-  return {
-    score,
-    reason: `Match score of ${matchScore}% indicates weak alignment — candidate is likely focused on a different technology area and may not engage.`,
-  };
+  
+  return { score, reason };
 }
 
 // ─── Step 6: Conversation Simulation ───────────────────────────────
@@ -489,38 +598,53 @@ function simulateConversation(matchScore: number): string {
   return pickOne(CONVERSATION_TEMPLATES.low);
 }
 
-// ─── Step 7: Why Selected ───────────────────────────────────────────
+// ─── Step 7: Final Selection Reasoning ─────────────────────────────
 
 function buildWhySelected(data: {
   name: string; title: string; location: string; experience: string;
   matchScore: number; matchedSkills: string[]; missingSkills: string[];
   interestScore: number;
+  rank?: number; totalCandidates?: number;
 }): string {
   const parts: string[] = [];
 
-  if (data.matchScore >= 70) {
-    parts.push(`${data.name} is a strong match with ${data.matchScore}% skill overlap.`);
-  } else if (data.matchScore >= 40) {
-    parts.push(`${data.name} has moderate alignment at ${data.matchScore}% skill match.`);
+  // Primary reason: skill match quality
+  if (data.matchScore >= 85) {
+    parts.push(`${data.name} is an exceptional fit with ${data.matchScore}% weighted skill match.`);
+    parts.push(`Core competencies: ${data.matchedSkills.slice(0, 3).join(', ')}.`);
+  } else if (data.matchScore >= 70) {
+    parts.push(`${data.name} is a strong candidate with ${data.matchScore}% weighted skill overlap.`);
+    parts.push(`Key strengths: ${data.matchedSkills.slice(0, 3).join(', ')}.`);
+  } else if (data.matchScore >= 50) {
+    parts.push(`${data.name} demonstrates moderate alignment at ${data.matchScore}% weighted match.`);
+    parts.push(`Relevant experience: ${data.matchedSkills.slice(0, 2).join(', ')}.`);
   } else {
-    parts.push(`${data.name} has limited direct skill overlap at ${data.matchScore}%.`);
+    parts.push(`${data.name} has limited skill overlap at ${data.matchScore}% but shows potential.`);
+    if (data.matchedSkills.length > 0) {
+      parts.push(`Foundation skills: ${data.matchedSkills.join(', ')}.`);
+    }
   }
 
-  if (data.matchedSkills.length > 0) {
-    parts.push(`Matches: ${data.matchedSkills.join(', ')}.`);
-  }
-  if (data.missingSkills.length > 0) {
-    parts.push(`Gaps: ${data.missingSkills.join(', ')}.`);
-  }
-
-  parts.push(`${data.title} based in ${data.location} with ${data.experience} of experience.`);
-
-  if (data.interestScore >= 70) {
-    parts.push('Highly receptive to outreach.');
-  } else if (data.interestScore >= 40) {
-    parts.push('Moderately open to conversation.');
+  // Secondary reason: interest alignment + experience
+  if (data.interestScore >= 75) {
+    parts.push(`${data.title} with ${data.experience} experience — highly motivated to transition into this role.`);
+  } else if (data.interestScore >= 50) {
+    parts.push(`${data.title} with ${data.experience} experience — open to conversation with right growth path.`);
   } else {
-    parts.push('Likely to decline initial outreach.');
+    parts.push(`${data.title} with ${data.experience} experience — may require compelling case for interest.`);
+  }
+
+  // Closing: gap analysis
+  if (data.missingSkills.length === 0) {
+    parts.push('No critical gaps — ready for immediate impact.');
+  } else if (data.missingSkills.length <= 2) {
+    parts.push(`Minimal gaps (${data.missingSkills.join(', ')}) — trainable within 3-6 months.`);
+  } else {
+    parts.push(`Will need ramp-up on ${data.missingSkills.length} additional skills.`);
+  }
+
+  if (data.rank === 1) {
+    parts.push('Selected as top candidate for priority outreach.');
   }
 
   return parts.join(' ');
@@ -570,67 +694,67 @@ export async function POST(req: NextRequest) {
 
     const logs: string[] = [];
 
-    // ── Step 1: Parse JD & Extract Skills ──
-    logs.push('Parsing job description...');
+    // ── STEP 01: Parse JD & Detect Domain ──
+    logs.push('01 Parsing job description...');
+    const detectedDomain = detectRoleDomain(jobDescription);
+    logs.push(`02 Detected role type: ${detectedDomain}`);
 
+    // ── STEP 02: Extract & Normalize Skills ──
+    logs.push('03 Extracting and normalizing skills...');
     let requiredSkills: string[];
     const geminiSkills = await extractSkillsWithGemini(jobDescription);
 
     if (geminiSkills.length > 0) {
-      requiredSkills = geminiSkills;
-      logs.push(`Gemini extracted ${requiredSkills.length} skills: ${requiredSkills.join(', ')}`);
+      requiredSkills = geminiSkills.filter(s => !GENERIC_SKILLS_BLACKLIST.has(s.toLowerCase()));
+      logs.push(`04 Extracted ${requiredSkills.length} valid skills (AI-enhanced): ${requiredSkills.join(', ')}`);
     } else {
       requiredSkills = extractSkillsFromJD(jobDescription);
-      logs.push(`Keyword extraction found ${requiredSkills.length} skills: ${requiredSkills.join(', ')}`);
+      logs.push(`04 Normalized ${requiredSkills.length} skills from keywords: ${requiredSkills.join(', ')}`);
     }
 
     if (requiredSkills.length === 0) {
-      logs.push('Warning: No skills detected — using fallback from JD text');
+      logs.push('⚠️  No skills found — applying domain-based defaults');
       requiredSkills = extractSkillsFromJD(jobDescription);
     }
 
-    // ── Step 2: Generate Candidates ──
-    logs.push('Generating candidate profiles based on required skills...');
-
+    // ── STEP 03: Generate Candidates ──
+    logs.push('05 Generating candidate profiles based on required skills...');
     let rawCandidates: RawCandidate[];
     const geminiCandidates = await generateCandidatesWithGemini(requiredSkills);
 
     if (geminiCandidates && geminiCandidates.length > 0) {
       rawCandidates = geminiCandidates;
-      logs.push(`AI generated ${rawCandidates.length} candidate profiles`);
+      logs.push(`06 AI generated ${rawCandidates.length} candidate profiles`);
     } else {
       rawCandidates = generateCandidatesFromSkills(requiredSkills);
-      logs.push(`Generated ${rawCandidates.length} candidate profiles from skill analysis`);
+      logs.push(`06 Generated ${rawCandidates.length} candidates from skill distribution`);
     }
 
-    // ── Step 3: Filter Candidates ──
-    logs.push('Filtering candidates — removing zero-overlap profiles...');
+    // ── STEP 04: Filter Candidates ──
+    logs.push('07 Filtering candidates — removing non-relevant profiles...');
     const beforeFilter = rawCandidates.length;
     rawCandidates = filterCandidates(rawCandidates, requiredSkills);
     const filtered = beforeFilter - rawCandidates.length;
-    if (filtered > 0) {
-      logs.push(`Removed ${filtered} candidate(s) with no skill overlap`);
-    }
-    logs.push(`${rawCandidates.length} candidates passed filtering`);
+    logs.push(`08 Removed ${filtered} irrelevant candidate(s) — ${rawCandidates.length} remain`);
 
-    // ── Step 4: Calculate Match Scores ──
-    logs.push('Calculating match scores (matched skills / total required skills)...');
-
-    const candidates = rawCandidates.map(raw => {
+    // ── STEP 05: Calculate Weighted Scores ──
+    logs.push('09 Applying weighted skill matching algorithm...');
+    const candidates = rawCandidates.map((raw, index) => {
       const { score: matchScore, matched: matchedSkills, missing: missingSkills } =
-        calculateMatchScore(raw.skills, requiredSkills);
+        calculateWeightedMatchScore(raw.skills, requiredSkills);
 
-      // ── Step 5: Interest Score ──
+      // ── STEP 06: Interest Score ──
       const { score: interestScore, reason: interestReason } = calculateInterestScore(matchScore);
 
-      // ── Step 6: Final Score ──
+      // ── STEP 07: Final Score ──
       const finalScore = Math.round((matchScore * 0.6) + (interestScore * 0.4));
 
-      const explanation = `Matches ${matchedSkills.length} out of ${requiredSkills.length} required skills`;
+      const explanation = `Weighted match: ${matchedSkills.length}/${requiredSkills.length} skills`;
 
       const whySelected = buildWhySelected({
         name: raw.name, title: raw.title, location: raw.location,
         experience: raw.experience, matchScore, matchedSkills, missingSkills, interestScore,
+        rank: index + 1, totalCandidates: rawCandidates.length,
       });
 
       const conversation = simulateConversation(matchScore);
@@ -654,30 +778,31 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // ── Step 7: Rank ──
-    logs.push('Simulating outreach conversations...');
-    logs.push('Computing final scores (60% match + 40% interest)...');
+    // ── STEP 08: Rank ──
+    logs.push('10 Simulating outreach conversations...');
+    logs.push('11 Computing final scores (60% weighted match + 40% interest)...');
     candidates.sort((a, b) => b.finalScore - a.finalScore);
-    logs.push('Ranking candidates by final score...');
+    logs.push('12 Ranking candidates by composite score...');
 
-    // ── Step 8: Validate ──
-    logs.push('Validating results — checking score accuracy and candidate variation...');
+    // ── STEP 09: Validate ──
+    logs.push('13 Validating results — checking mathematical accuracy...');
     const isValid = validateResults(candidates, requiredSkills);
     if (!isValid) {
-      logs.push('Validation failed — regenerating candidates...');
+      logs.push('⚠️  Validation failed — regenerating with fallback...');
       // Regenerate with fallback
       const fallbackCandidates = generateCandidatesFromSkills(requiredSkills);
       const filteredFallback = filterCandidates(fallbackCandidates, requiredSkills);
 
-      const regenerated = filteredFallback.map(raw => {
+      const regenerated = filteredFallback.map((raw, index) => {
         const { score: matchScore, matched: matchedSkills, missing: missingSkills } =
-          calculateMatchScore(raw.skills, requiredSkills);
+          calculateWeightedMatchScore(raw.skills, requiredSkills);
         const { score: interestScore, reason: interestReason } = calculateInterestScore(matchScore);
         const finalScore = Math.round((matchScore * 0.6) + (interestScore * 0.4));
-        const explanation = `Matches ${matchedSkills.length} out of ${requiredSkills.length} required skills`;
+        const explanation = `Weighted match: ${matchedSkills.length}/${requiredSkills.length} skills`;
         const whySelected = buildWhySelected({
           name: raw.name, title: raw.title, location: raw.location,
           experience: raw.experience, matchScore, matchedSkills, missingSkills, interestScore,
+          rank: index + 1, totalCandidates: filteredFallback.length,
         });
         const conversation = simulateConversation(matchScore);
         return {
@@ -691,16 +816,22 @@ export async function POST(req: NextRequest) {
       regenerated.sort((a, b) => b.finalScore - a.finalScore);
       candidates.length = 0;
       candidates.push(...regenerated);
-      logs.push('Regeneration complete — results validated');
+      logs.push('14 Fallback generation complete — validated');
     } else {
-      logs.push('Validation passed — scores are accurate and candidates vary');
+      logs.push('14 Validation passed — all scores verified');
     }
 
-    // ── Summary ──
+    // ── Summary & Final Selection Reasoning ──
+    logs.push('15 Final selection reasoning:');
     if (candidates.length > 0) {
-      logs.push(`Top candidate: ${candidates[0].name} (${candidates[0].matchScore}% match, score: ${candidates[0].finalScore})`);
+      const topCandidate = candidates[0];
+      logs.push(`✓ Top candidate: ${topCandidate.name} (${topCandidate.matchScore}% match, score: ${topCandidate.finalScore})`);
+      logs.push(`  Strengths: ${topCandidate.matchedSkills.slice(0, 3).join(', ')}`);
+      if (topCandidate.missingSkills.length > 0) {
+        logs.push(`  Growth areas: ${topCandidate.missingSkills.slice(0, 3).join(', ')}`);
+      }
     }
-    logs.push('Scouting complete!');
+    logs.push('16 Talent scouting complete — candidates ranked and ready for outreach');
 
     return NextResponse.json({ logs, candidates, requiredSkills });
   } catch (error) {
