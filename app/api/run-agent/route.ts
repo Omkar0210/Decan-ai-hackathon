@@ -102,9 +102,7 @@ const SKILL_KEYWORDS: Record<string, string> = {
   // Security
   'penetration testing': 'Penetration Testing', 'pentest': 'Penetration Testing',
   'network security': 'Network Security', 'cybersecurity': 'Cybersecurity',
-  'siem': 'SIEM', 'firewall': 'Firewalls', 'firewalls': 'Firewalls',
-  // Mobile specific
-  'android': 'Android', 'ios': 'iOS', 'swift': 'Swift', 'kotlin': 'Kotlin',
+  'siem': 'SIEM', 'firewall': 'Firewalls',
   // Design Systems
   'design systems': 'Design Systems',
 };
