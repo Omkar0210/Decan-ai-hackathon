@@ -1,16 +1,49 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// ─── ROLE → SKILL MAPPING SYSTEM ────────────────────────────────────
+// Maps job roles to their required tech stacks for intelligent role detection
+const ROLE_SKILL_MAPPING: Record<string, string[]> = {
+  'full stack developer': ['React', 'Node.js', 'MongoDB', 'Express.js'],
+  'full-stack developer': ['React', 'Node.js', 'MongoDB', 'Express.js'],
+  'frontend developer': ['React', 'JavaScript', 'HTML', 'CSS'],
+  'frontend engineer': ['React', 'JavaScript', 'HTML', 'CSS'],
+  'backend developer': ['Node.js', 'Express.js', 'MongoDB', 'PostgreSQL'],
+  'backend engineer': ['Node.js', 'Express.js', 'MongoDB', 'PostgreSQL'],
+  'java developer': ['Java', 'Spring Boot', 'REST API', 'MySQL'],
+  'java engineer': ['Java', 'Spring Boot', 'REST API', 'MySQL'],
+  'python developer': ['Python', 'Django', 'Flask', 'PostgreSQL'],
+  'python engineer': ['Python', 'Django', 'Flask', 'PostgreSQL'],
+  'ai engineer': ['Python', 'TensorFlow', 'PyTorch', 'Machine Learning'],
+  'ml engineer': ['Python', 'TensorFlow', 'PyTorch', 'Machine Learning'],
+  'ai/ml engineer': ['Python', 'TensorFlow', 'PyTorch', 'Machine Learning'],
+  'data scientist': ['Python', 'Pandas', 'NumPy', 'Machine Learning', 'SQL'],
+  'devops engineer': ['Docker', 'Kubernetes', 'AWS', 'CI/CD', 'Linux'],
+  'devops developer': ['Docker', 'Kubernetes', 'AWS', 'CI/CD', 'Linux'],
+  'cloud engineer': ['AWS', 'Azure', 'GCP', 'Terraform', 'Docker'],
+  'cloud architect': ['AWS', 'Azure', 'GCP', 'Terraform', 'Docker'],
+  'cybersecurity engineer': ['Network Security', 'Penetration Testing', 'SIEM', 'Firewalls'],
+  'security engineer': ['Network Security', 'Penetration Testing', 'SIEM', 'Firewalls'],
+  'mobile developer': ['React Native', 'Flutter', 'Android', 'iOS'],
+  'mobile engineer': ['React Native', 'Flutter', 'Android', 'iOS'],
+  'ui/ux developer': ['Figma', 'CSS', 'HTML', 'Design Systems'],
+  'ui/ux engineer': ['Figma', 'CSS', 'HTML', 'Design Systems'],
+  'ux developer': ['Figma', 'CSS', 'HTML', 'Design Systems'],
+};
+
 // ─── Skill Knowledge Base ───────────────────────────────────────────
 // Maps technology keywords to their canonical skill names.
 // This ensures "MERN" expands to the correct 4 skills, etc.
 const SKILL_ALIASES: Record<string, string[]> = {
   'mern': ['MongoDB', 'Express.js', 'React', 'Node.js'],
   'mean': ['MongoDB', 'Express.js', 'Angular', 'Node.js'],
-  'jamstack': ['JavaScript', 'API', 'Markup'],
+  'jamstack': ['JavaScript', 'HTML', 'CSS'],
   'lamp': ['Linux', 'Apache', 'MySQL', 'PHP'],
-  'full stack': ['Frontend', 'Backend', 'Database'],
-  'frontend': ['HTML', 'CSS', 'JavaScript'],
-  'backend': ['Server', 'API', 'Database'],
+  'full stack': ['React', 'Node.js', 'MongoDB', 'Express.js'],
+  'full stack developer': ['React', 'Node.js', 'MongoDB', 'Express.js'],
+  'frontend developer': ['React', 'JavaScript', 'HTML', 'CSS', 'TypeScript'],
+  'backend developer': ['Node.js', 'Express.js', 'MongoDB', 'Python', 'PostgreSQL'],
+  'frontend': ['React', 'JavaScript', 'HTML', 'CSS', 'TypeScript'],
+  'backend': ['Node.js', 'Express.js', 'PostgreSQL', 'Python'],
 };
 
 const SKILL_KEYWORDS: Record<string, string> = {
@@ -66,6 +99,14 @@ const SKILL_KEYWORDS: Record<string, string> = {
   'tableau': 'Tableau', 'power bi': 'Power BI',
   'data engineering': 'Data Engineering',
   'data analysis': 'Data Analysis',
+  // Security
+  'penetration testing': 'Penetration Testing', 'pentest': 'Penetration Testing',
+  'network security': 'Network Security', 'cybersecurity': 'Cybersecurity',
+  'siem': 'SIEM', 'firewall': 'Firewalls', 'firewalls': 'Firewalls',
+  // Mobile specific
+  'android': 'Android', 'ios': 'iOS', 'swift': 'Swift', 'kotlin': 'Kotlin',
+  // Design Systems
+  'design systems': 'Design Systems',
 };
 
 // Domain groupings: skills that belong to the same tech domain
@@ -174,6 +215,34 @@ function generateName(usedNames: Set<string>): string {
   return name;
 }
 
+// ─── Role Detection ─────────────────────────────────────────────────
+// Detects the job role from the JD and returns mapped skills if found
+function detectRoleAndGetSkills(jd: string): { role: string | null; skills: string[] } {
+  const jdLower = jd.toLowerCase();
+  
+  // Sort by length descending so longer role descriptions match first
+  const sortedRoles = Object.keys(ROLE_SKILL_MAPPING).sort((a, b) => b.length - a.length);
+  
+  for (const roleKey of sortedRoles) {
+    if (jdLower.includes(roleKey)) {
+      return {
+        role: roleKey.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '),
+        skills: ROLE_SKILL_MAPPING[roleKey],
+      };
+    }
+  }
+  
+  return { role: null, skills: [] };
+}
+
+// ─── Generic Skill Filter ───────────────────────────────────────────
+// These are vague labels that should NEVER be in the final skill list
+const GENERIC_SKILLS = new Set(['Frontend', 'Backend', 'Database', 'Server', 'API', 'Markup', 'Apache']);
+
+function removeGenericSkills(skills: string[]): string[] {
+  return skills.filter(skill => !GENERIC_SKILLS.has(skill));
+}
+
 // ─── Step 1: Strict Skill Extraction ────────────────────────────────
 
 function extractSkillsFromJD(jd: string): string[] {
@@ -182,7 +251,11 @@ function extractSkillsFromJD(jd: string): string[] {
   const seen = new Set<string>();
 
   // First, expand known aliases (MERN, MEAN, etc.)
-  for (const [alias, expanded] of Object.entries(SKILL_ALIASES)) {
+  // Sort by length descending so longer aliases like "full stack developer" match before "full stack"
+  const sortedAliases = Object.entries(SKILL_ALIASES)
+    .sort((a, b) => b[0].length - a[0].length);
+
+  for (const [alias, expanded] of sortedAliases) {
     if (jdLower.includes(alias.toLowerCase())) {
       for (const skill of expanded) {
         const key = skill.toLowerCase();
@@ -214,7 +287,8 @@ function extractSkillsFromJD(jd: string): string[] {
     }
   }
 
-  return skills;
+  // Remove any generic skills that made it through
+  return removeGenericSkills(skills);
 }
 
 async function extractSkillsWithGemini(jd: string): Promise<string[]> {
@@ -230,7 +304,7 @@ async function extractSkillsWithGemini(jd: string): Promise<string[]> {
         body: JSON.stringify({
           contents: [{
             parts: [{
-              text: `You are a technical recruiter. Extract ONLY the specific technical skills, frameworks, languages, and tools mentioned or directly implied in this job description. Do NOT add skills that are not related to the job. Return ONLY a JSON array of skill names.\n\nJob Description:\n${jd}`,
+              text: `You are a technical recruiter. Extract ONLY the specific technical skills, frameworks, languages, and tools mentioned or directly implied in this job description. Do NOT add skills that are not related to the job. NEVER include generic vague labels like "Frontend", "Backend", "Database", "Server", "API", or "Markup". Return ONLY a JSON array of skill names.\n\nJob Description:\n${jd}`,
             }],
           }],
           generationConfig: { temperature: 0.1, maxOutputTokens: 512 },
@@ -244,7 +318,10 @@ async function extractSkillsWithGemini(jd: string): Promise<string[]> {
     const match = text.match(/\[[\s\S]*?\]/);
     if (match) {
       const parsed = JSON.parse(match[0]);
-      if (Array.isArray(parsed)) return parsed.map(String);
+      if (Array.isArray(parsed)) {
+        const skills = parsed.map(String);
+        return removeGenericSkills(skills);
+      }
     }
   } catch {
     console.log('Gemini skill extraction failed');
@@ -296,17 +373,20 @@ function generateCandidatesFromSkills(requiredSkills: string[]): RawCandidate[] 
   const candidates: RawCandidate[] = [];
   const adjacentSkills = getAdjacentSkills(requiredSkills);
 
-  // Define match tiers with precise skill counts
   const totalSkills = requiredSkills.length;
 
-  // HIGH match: 70-100% of required skills
-  const highCount = Math.max(1, Math.ceil(totalSkills * (0.7 + Math.random() * 0.3)));
-  // MEDIUM match 1: 40-70%
-  const med1Count = Math.max(1, Math.ceil(totalSkills * (0.4 + Math.random() * 0.3)));
-  // MEDIUM match 2: 40-70% (different subset)
-  const med2Count = Math.max(1, Math.ceil(totalSkills * (0.4 + Math.random() * 0.3)));
-  // LOW match: 10-40%
-  const lowCount = Math.max(0, Math.ceil(totalSkills * (0.1 + Math.random() * 0.3)));
+  // STRICT profile definition: 1 HIGH, 2 MEDIUM, 1 LOW
+  // HIGH: 70-100% of required skills
+  const highCount = Math.max(Math.ceil(totalSkills * 0.75), 1);
+  
+  // MEDIUM 1: 50-70% of required skills
+  const med1Count = Math.max(Math.ceil(totalSkills * (0.5 + Math.random() * 0.2)), 1);
+  
+  // MEDIUM 2: 40-60% (different subset)
+  const med2Count = Math.max(Math.ceil(totalSkills * (0.4 + Math.random() * 0.2)), 1);
+  
+  // LOW: 15-35% of required skills
+  const lowCount = Math.max(Math.ceil(totalSkills * (0.15 + Math.random() * 0.2)), 1);
 
   const profiles: Array<{ requiredCount: number; tier: 'high' | 'medium' | 'low' }> = [
     { requiredCount: highCount, tier: 'high' },
@@ -315,20 +395,14 @@ function generateCandidatesFromSkills(requiredSkills: string[]): RawCandidate[] 
     { requiredCount: lowCount, tier: 'low' },
   ];
 
-  // Maybe add a 5th candidate
-  if (Math.random() > 0.4) {
-    const extraCount = Math.max(1, Math.ceil(totalSkills * (0.3 + Math.random() * 0.5)));
-    profiles.push({ requiredCount: extraCount, tier: extraCount / totalSkills >= 0.7 ? 'high' : extraCount / totalSkills >= 0.4 ? 'medium' : 'low' });
-  }
-
   for (const profile of profiles) {
     const name = generateName(usedNames);
 
-    // Pick required skills this candidate has
+    // Pick required skills this candidate has (ensure different subsets for medium candidates)
     const candidateRequiredSkills = pickRandom(requiredSkills, Math.min(profile.requiredCount, totalSkills));
 
-    // Add 1-3 adjacent/extra skills from the same domain
-    const extraCount = 1 + Math.floor(Math.random() * 3);
+    // Add 1-2 adjacent/extra skills from the same domain (not too many)
+    const extraCount = profile.tier === 'high' ? 1 + Math.floor(Math.random() * 2) : Math.floor(Math.random() * 2);
     const extraSkills = adjacentSkills.length > 0
       ? pickRandom(adjacentSkills, Math.min(extraCount, adjacentSkills.length))
       : [];
@@ -376,26 +450,29 @@ async function generateCandidatesWithGemini(requiredSkills: string[]): Promise<R
             parts: [{
               text: `You are generating candidate profiles for a job that requires these skills: ${JSON.stringify(requiredSkills)}
 
-Generate 5 realistic candidate profiles. CRITICAL RULES:
+Generate 4 realistic candidate profiles with REALISTIC VARIATION. CRITICAL RULES:
+- NEVER include generic vague skills like "Frontend", "Backend", "Database", "Server", "API", "Markup"
+- Each candidate's skills MUST be REAL technologies (React, Node.js, MongoDB, etc.)
 - Each candidate's skills MUST be from the SAME technology domain as the required skills
-- One candidate should match 70-100% of required skills (HIGH match)
-- Two candidates should match 40-70% (MEDIUM match)
-- One candidate should match less than 40% (LOW match)
-- Extra skills must be ADJACENT to the required skills domain (e.g., if JD needs React, extra skills could be Redux, Next.js, NOT Java or Spring Boot)
-- Do NOT give candidates skills from unrelated domains
+- Candidate 1: match 70-100% of required skills (HIGH match - strong fit)
+- Candidate 2: match 40-70% (MEDIUM match - some gaps)
+- Candidate 3: match 40-70% (MEDIUM match - different subset of skills)
+- Candidate 4: match 10-40% (LOW match - wrong domain)
+- Extra skills must be ADJACENT to the required skills domain (e.g., if JD needs React, extra could be Redux, Next.js; if Node.js, extra could be Express, TypeScript)
+- Do NOT mix unrelated domains (e.g., no Java with React unless the JD mentions both)
 
 Each candidate must include:
 - name: realistic full name (diverse global backgrounds)
-- skills: array of skill strings (mix of matched required skills + adjacent extras)
+- skills: array of REAL technical skill strings (specific real tools, frameworks, languages - NEVER vague labels)
 - experience: string like "5 years"
 - title: realistic job title matching the domain
 - location: city and country
 - summary: 1-2 sentence professional summary
 
-Return ONLY a JSON array. No explanation, no markdown.`,
+Return ONLY a valid JSON array. No explanation, no markdown, no code blocks.`,
             }],
           }],
-          generationConfig: { temperature: 0.9, maxOutputTokens: 2048 },
+          generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
         }),
       }
     );
@@ -411,9 +488,10 @@ Return ONLY a JSON array. No explanation, no markdown.`,
         return parsed.map((c: Record<string, unknown>) => {
           const name = String(c.name || generateName(usedNames));
           usedNames.add(name);
+          const skills = Array.isArray(c.skills) ? c.skills.map(String) : [];
           return {
             name,
-            skills: Array.isArray(c.skills) ? c.skills.map(String) : [],
+            skills: removeGenericSkills(skills),
             experience: String(c.experience || pickOne(EXPERIENCE_LEVELS)),
             title: String(c.title || 'Software Engineer'),
             location: String(c.location || pickOne(LOCATIONS)),
@@ -490,6 +568,114 @@ function simulateConversation(matchScore: number): string {
 }
 
 // ─── Step 7: Why Selected ───────────────────────────────────────────
+
+// ─── Confidence Score ──────────────────────────────────────────────
+// Calculates confidence based on skill coverage and gap from next candidate
+
+function calculateConfidenceScore(matchScore: number, scoreGapVsNext: number): { score: 'High' | 'Medium' | 'Low'; explanation: string } {
+  if (matchScore >= 80 && scoreGapVsNext >= 15) {
+    return { score: 'High', explanation: 'Strong skill match with clear lead over other candidates' };
+  } else if (matchScore >= 70 && scoreGapVsNext >= 10) {
+    return { score: 'High', explanation: 'Solid fit with notable advantage' };
+  } else if (matchScore >= 60) {
+    return { score: 'Medium', explanation: 'Decent alignment but other candidates are competitive' };
+  } else if (matchScore >= 40) {
+    return { score: 'Medium', explanation: 'Moderate fit with significant gaps' };
+  } else {
+    return { score: 'Low', explanation: 'Limited skill alignment' };
+  }
+}
+
+// ─── Final Decision Reasoning ──────────────────────────────────────
+// Explains why the top candidate was selected
+
+function buildFinalDecisionReason(data: {
+  topCandidateName: string;
+  topCandidateScore: number;
+  topCandidateMatchScore: number;
+  topCandidateMatchedSkills: string[];
+  secondCandidateName?: string;
+  secondCandidateScore?: number;
+  totalCandidates: number;
+  role?: string | null;
+}): string {
+  const parts: string[] = [];
+  
+  parts.push(`${data.topCandidateName} ranked #1 due to:`);
+  
+  // Match score strength
+  if (data.topCandidateMatchScore >= 80) {
+    parts.push(`- Exceptional skill match (${data.topCandidateMatchScore}% alignment)`);
+  } else if (data.topCandidateMatchScore >= 70) {
+    parts.push(`- Strong skill match (${data.topCandidateMatchScore}% alignment)`);
+  } else if (data.topCandidateMatchScore >= 50) {
+    parts.push(`- Solid skill match (${data.topCandidateMatchScore}% alignment)`);
+  }
+  
+  // Core skills
+  if (data.topCandidateMatchedSkills.length >= 3) {
+    const topSkills = data.topCandidateMatchedSkills.slice(0, 2).join(' & ');
+    parts.push(`- Proven expertise in ${topSkills}`);
+  }
+  
+  // Competitive advantage
+  if (data.secondCandidateName && data.secondCandidateScore && data.topCandidateScore - data.secondCandidateScore > 10) {
+    parts.push(`- Clear lead over next candidate (${Math.round(data.topCandidateScore - data.secondCandidateScore)} points ahead)`);
+  }
+  
+  // Role fit (if detected)
+  if (data.role) {
+    parts.push(`- Best fit for ${data.role} requirements`);
+  }
+  
+  return parts.join('\n');
+}
+
+// ─── Advanced Explanation ───────────────────────────────────────────
+
+function buildAdvancedExplanation(data: {
+  matchedSkills: string[];
+  missingSkills: string[];
+  matchScore: number;
+  totalRequiredSkills: number;
+}): string {
+  const parts: string[] = [];
+  
+  if (data.matchedSkills.length === 0) {
+    return 'No skill overlap with required skills.';
+  }
+  
+  // Build matched skills description
+  const matchedList = data.matchedSkills.slice(0, 3).join(', ');
+  const matchedSuffix = data.matchedSkills.length > 3 ? ` and ${data.matchedSkills.length - 3} more` : '';
+  parts.push(`Matches key skills ${matchedList}${matchedSuffix}`);
+  
+  // Add context about what these skills cover
+  const coreSkills = data.matchedSkills.filter(s => 
+    ['React', 'Node.js', 'Python', 'Java', 'Angular', 'Vue.js', 'Django', 'Flask', 'Spring Boot', 'Express.js'].includes(s)
+  );
+  
+  if (coreSkills.length > 0) {
+    const coreArea = coreSkills.length <= 2 ? 'primary' : 'core';
+    parts.push(`covering ${coreArea} technology requirements`);
+  }
+  
+  // Add missing skills impact
+  if (data.missingSkills.length > 0) {
+    const missingList = data.missingSkills.slice(0, 2).join(', ');
+    const missingSuffix = data.missingSkills.length > 2 ? ` and ${data.missingSkills.length - 2} more` : '';
+    
+    if (data.matchScore >= 70) {
+      parts.push(`Missing ${missingList}${missingSuffix}, which slightly impacts completeness`);
+    } else if (data.matchScore >= 50) {
+      parts.push(`Missing ${missingList}${missingSuffix}, reducing full alignment`);
+    } else {
+      parts.push(`Missing critical skills: ${missingList}${missingSuffix}`);
+    }
+  }
+  
+  return parts.join('. ') + '.';
+}
 
 function buildWhySelected(data: {
   name: string; title: string; location: string; experience: string;
@@ -569,28 +755,46 @@ export async function POST(req: NextRequest) {
     }
 
     const logs: string[] = [];
+    let detectedRole: string | null = null;
 
-    // ── Step 1: Parse JD & Extract Skills ──
-    logs.push('Parsing job description...');
+    // ── Step 1: Parse JD & Detect Role ──
+    logs.push('01 Parsing job description and detecting role...');
+    
+    const { role, skills: roleSkills } = detectRoleAndGetSkills(jobDescription);
+    detectedRole = role;
+    
+    if (role) {
+      logs.push(`02 Detected role → [${role}]`);
+      logs.push(`03 Mapping skills to role requirements...`);
+    } else {
+      logs.push(`02 No recognized role detected — using skill extraction`);
+    }
 
     let requiredSkills: string[];
-    const geminiSkills = await extractSkillsWithGemini(jobDescription);
-
-    if (geminiSkills.length > 0) {
-      requiredSkills = geminiSkills;
-      logs.push(`Gemini extracted ${requiredSkills.length} skills: ${requiredSkills.join(', ')}`);
+    
+    // Use role-based skills if detected, otherwise extract from JD
+    if (roleSkills.length > 0) {
+      requiredSkills = roleSkills;
+      logs.push(`Mapped ${requiredSkills.length} required skills: ${requiredSkills.join(', ')}`);
     } else {
-      requiredSkills = extractSkillsFromJD(jobDescription);
-      logs.push(`Keyword extraction found ${requiredSkills.length} skills: ${requiredSkills.join(', ')}`);
+      const geminiSkills = await extractSkillsWithGemini(jobDescription);
+
+      if (geminiSkills.length > 0) {
+        requiredSkills = geminiSkills;
+        logs.push(`Gemini extracted ${requiredSkills.length} skills: ${requiredSkills.join(', ')}`);
+      } else {
+        requiredSkills = extractSkillsFromJD(jobDescription);
+        logs.push(`Keyword extraction found ${requiredSkills.length} skills: ${requiredSkills.join(', ')}`);
+      }
+
+      if (requiredSkills.length === 0) {
+        logs.push('Warning: No skills detected — using fallback from JD text');
+        requiredSkills = extractSkillsFromJD(jobDescription);
+      }
     }
 
-    if (requiredSkills.length === 0) {
-      logs.push('Warning: No skills detected — using fallback from JD text');
-      requiredSkills = extractSkillsFromJD(jobDescription);
-    }
-
-    // ── Step 2: Generate Candidates ──
-    logs.push('Generating candidate profiles based on required skills...');
+    // ── Step 2-3: Generate & Filter Candidates ──
+    logs.push('04 Generating candidate profiles based on required skills...');
 
     let rawCandidates: RawCandidate[];
     const geminiCandidates = await generateCandidatesWithGemini(requiredSkills);
@@ -603,8 +807,7 @@ export async function POST(req: NextRequest) {
       logs.push(`Generated ${rawCandidates.length} candidate profiles from skill analysis`);
     }
 
-    // ── Step 3: Filter Candidates ──
-    logs.push('Filtering candidates — removing zero-overlap profiles...');
+    logs.push('05 Filtering irrelevant candidates...');
     const beforeFilter = rawCandidates.length;
     rawCandidates = filterCandidates(rawCandidates, requiredSkills);
     const filtered = beforeFilter - rawCandidates.length;
@@ -613,8 +816,8 @@ export async function POST(req: NextRequest) {
     }
     logs.push(`${rawCandidates.length} candidates passed filtering`);
 
-    // ── Step 4: Calculate Match Scores ──
-    logs.push('Calculating match scores (matched skills / total required skills)...');
+    // ── Steps 5-6: Calculate Scores ──
+    logs.push('06 Scoring candidates by skill match...');
 
     const candidates = rawCandidates.map(raw => {
       const { score: matchScore, matched: matchedSkills, missing: missingSkills } =
@@ -626,7 +829,13 @@ export async function POST(req: NextRequest) {
       // ── Step 6: Final Score ──
       const finalScore = Math.round((matchScore * 0.6) + (interestScore * 0.4));
 
-      const explanation = `Matches ${matchedSkills.length} out of ${requiredSkills.length} required skills`;
+      // Advanced explanation instead of simple count
+      const explanation = buildAdvancedExplanation({
+        matchedSkills,
+        missingSkills,
+        matchScore,
+        totalRequiredSkills: requiredSkills.length,
+      });
 
       const whySelected = buildWhySelected({
         name: raw.name, title: raw.title, location: raw.location,
@@ -654,15 +863,14 @@ export async function POST(req: NextRequest) {
       };
     });
 
-    // ── Step 7: Rank ──
-    logs.push('Simulating outreach conversations...');
-    logs.push('Computing final scores (60% match + 40% interest)...');
-    candidates.sort((a, b) => b.finalScore - a.finalScore);
-    logs.push('Ranking candidates by final score...');
+    // ── Step 7: Rank Candidates ──
+    logs.push('07 Ranking candidates by final score...');
+    const filteredCandidates = candidates.filter(c => c.matchScore > 0);
+    filteredCandidates.sort((a, b) => b.finalScore - a.finalScore);
 
-    // ── Step 8: Validate ──
-    logs.push('Validating results — checking score accuracy and candidate variation...');
-    const isValid = validateResults(candidates, requiredSkills);
+    // ── Step 8: Validate Results ──
+    logs.push('08 Validating results — checking score accuracy and candidate variation...');
+    const isValid = validateResults(filteredCandidates, requiredSkills);
     if (!isValid) {
       logs.push('Validation failed — regenerating candidates...');
       // Regenerate with fallback
@@ -674,7 +882,12 @@ export async function POST(req: NextRequest) {
           calculateMatchScore(raw.skills, requiredSkills);
         const { score: interestScore, reason: interestReason } = calculateInterestScore(matchScore);
         const finalScore = Math.round((matchScore * 0.6) + (interestScore * 0.4));
-        const explanation = `Matches ${matchedSkills.length} out of ${requiredSkills.length} required skills`;
+        const explanation = buildAdvancedExplanation({
+          matchedSkills,
+          missingSkills,
+          matchScore,
+          totalRequiredSkills: requiredSkills.length,
+        });
         const whySelected = buildWhySelected({
           name: raw.name, title: raw.title, location: raw.location,
           experience: raw.experience, matchScore, matchedSkills, missingSkills, interestScore,
@@ -689,20 +902,43 @@ export async function POST(req: NextRequest) {
       });
 
       regenerated.sort((a, b) => b.finalScore - a.finalScore);
-      candidates.length = 0;
-      candidates.push(...regenerated);
+      filteredCandidates.length = 0;
+      filteredCandidates.push(...regenerated);
       logs.push('Regeneration complete — results validated');
     } else {
       logs.push('Validation passed — scores are accurate and candidates vary');
     }
 
-    // ── Summary ──
-    if (candidates.length > 0) {
-      logs.push(`Top candidate: ${candidates[0].name} (${candidates[0].matchScore}% match, score: ${candidates[0].finalScore})`);
+    // ── Step 9: Final Decision ──
+    logs.push('09 Final decision reasoning...');
+    if (filteredCandidates.length > 0) {
+      const topCandidate = filteredCandidates[0];
+      const secondCandidate = filteredCandidates[1];
+      
+      // Add confidence score
+      const scoreGapVsNext = secondCandidate ? topCandidate.finalScore - secondCandidate.finalScore : 0;
+      const { score: confidenceScore, explanation: confidenceExplanation } = 
+        calculateConfidenceScore(topCandidate.matchScore, scoreGapVsNext);
+      
+      // Calculate final decision reason
+      const finalDecision = buildFinalDecisionReason({
+        topCandidateName: topCandidate.name,
+        topCandidateScore: topCandidate.finalScore,
+        topCandidateMatchScore: topCandidate.matchScore,
+        topCandidateMatchedSkills: topCandidate.matchedSkills,
+        secondCandidateName: secondCandidate?.name,
+        secondCandidateScore: secondCandidate?.finalScore,
+        totalCandidates: filteredCandidates.length,
+        role: detectedRole,
+      });
+      
+      logs.push(`Top candidate: ${topCandidate.name} (${topCandidate.matchScore}% match, score: ${topCandidate.finalScore})`);
+      logs.push(`Confidence: ${confidenceScore} — ${confidenceExplanation}`);
+      logs.push(finalDecision);
     }
     logs.push('Scouting complete!');
 
-    return NextResponse.json({ logs, candidates, requiredSkills });
+    return NextResponse.json({ logs, candidates: filteredCandidates, requiredSkills });
   } catch (error) {
     console.error('Agent error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
