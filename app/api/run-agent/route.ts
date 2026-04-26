@@ -6,11 +6,14 @@ import { NextRequest, NextResponse } from 'next/server';
 const SKILL_ALIASES: Record<string, string[]> = {
   'mern': ['MongoDB', 'Express.js', 'React', 'Node.js'],
   'mean': ['MongoDB', 'Express.js', 'Angular', 'Node.js'],
-  'jamstack': ['JavaScript', 'API', 'Markup'],
+  'jamstack': ['JavaScript', 'HTML', 'CSS'],
   'lamp': ['Linux', 'Apache', 'MySQL', 'PHP'],
-  'full stack': ['Frontend', 'Backend', 'Database'],
-  'frontend': ['HTML', 'CSS', 'JavaScript'],
-  'backend': ['Server', 'API', 'Database'],
+  'full stack': ['React', 'Node.js', 'MongoDB', 'Express.js'],
+  'full stack developer': ['React', 'Node.js', 'MongoDB', 'Express.js'],
+  'frontend developer': ['React', 'JavaScript', 'HTML', 'CSS', 'TypeScript'],
+  'backend developer': ['Node.js', 'Express.js', 'MongoDB', 'Python', 'PostgreSQL'],
+  'frontend': ['React', 'JavaScript', 'HTML', 'CSS', 'TypeScript'],
+  'backend': ['Node.js', 'Express.js', 'PostgreSQL', 'Python'],
 };
 
 const SKILL_KEYWORDS: Record<string, string> = {
@@ -174,6 +177,14 @@ function generateName(usedNames: Set<string>): string {
   return name;
 }
 
+// ─── Generic Skill Filter ───────────────────────────────────────────
+// These are vague labels that should NEVER be in the final skill list
+const GENERIC_SKILLS = new Set(['Frontend', 'Backend', 'Database', 'Server', 'API', 'Markup', 'Apache']);
+
+function removeGenericSkills(skills: string[]): string[] {
+  return skills.filter(skill => !GENERIC_SKILLS.has(skill));
+}
+
 // ─── Step 1: Strict Skill Extraction ────────────────────────────────
 
 function extractSkillsFromJD(jd: string): string[] {
@@ -182,7 +193,11 @@ function extractSkillsFromJD(jd: string): string[] {
   const seen = new Set<string>();
 
   // First, expand known aliases (MERN, MEAN, etc.)
-  for (const [alias, expanded] of Object.entries(SKILL_ALIASES)) {
+  // Sort by length descending so longer aliases like "full stack developer" match before "full stack"
+  const sortedAliases = Object.entries(SKILL_ALIASES)
+    .sort((a, b) => b[0].length - a[0].length);
+
+  for (const [alias, expanded] of sortedAliases) {
     if (jdLower.includes(alias.toLowerCase())) {
       for (const skill of expanded) {
         const key = skill.toLowerCase();
@@ -214,7 +229,8 @@ function extractSkillsFromJD(jd: string): string[] {
     }
   }
 
-  return skills;
+  // Remove any generic skills that made it through
+  return removeGenericSkills(skills);
 }
 
 async function extractSkillsWithGemini(jd: string): Promise<string[]> {
@@ -230,7 +246,7 @@ async function extractSkillsWithGemini(jd: string): Promise<string[]> {
         body: JSON.stringify({
           contents: [{
             parts: [{
-              text: `You are a technical recruiter. Extract ONLY the specific technical skills, frameworks, languages, and tools mentioned or directly implied in this job description. Do NOT add skills that are not related to the job. Return ONLY a JSON array of skill names.\n\nJob Description:\n${jd}`,
+              text: `You are a technical recruiter. Extract ONLY the specific technical skills, frameworks, languages, and tools mentioned or directly implied in this job description. Do NOT add skills that are not related to the job. NEVER include generic vague labels like "Frontend", "Backend", "Database", "Server", "API", or "Markup". Return ONLY a JSON array of skill names.\n\nJob Description:\n${jd}`,
             }],
           }],
           generationConfig: { temperature: 0.1, maxOutputTokens: 512 },
@@ -244,7 +260,10 @@ async function extractSkillsWithGemini(jd: string): Promise<string[]> {
     const match = text.match(/\[[\s\S]*?\]/);
     if (match) {
       const parsed = JSON.parse(match[0]);
-      if (Array.isArray(parsed)) return parsed.map(String);
+      if (Array.isArray(parsed)) {
+        const skills = parsed.map(String);
+        return removeGenericSkills(skills);
+      }
     }
   } catch {
     console.log('Gemini skill extraction failed');
@@ -296,17 +315,20 @@ function generateCandidatesFromSkills(requiredSkills: string[]): RawCandidate[] 
   const candidates: RawCandidate[] = [];
   const adjacentSkills = getAdjacentSkills(requiredSkills);
 
-  // Define match tiers with precise skill counts
   const totalSkills = requiredSkills.length;
 
-  // HIGH match: 70-100% of required skills
-  const highCount = Math.max(1, Math.ceil(totalSkills * (0.7 + Math.random() * 0.3)));
-  // MEDIUM match 1: 40-70%
-  const med1Count = Math.max(1, Math.ceil(totalSkills * (0.4 + Math.random() * 0.3)));
-  // MEDIUM match 2: 40-70% (different subset)
-  const med2Count = Math.max(1, Math.ceil(totalSkills * (0.4 + Math.random() * 0.3)));
-  // LOW match: 10-40%
-  const lowCount = Math.max(0, Math.ceil(totalSkills * (0.1 + Math.random() * 0.3)));
+  // STRICT profile definition: 1 HIGH, 2 MEDIUM, 1 LOW
+  // HIGH: 70-100% of required skills
+  const highCount = Math.max(Math.ceil(totalSkills * 0.75), 1);
+  
+  // MEDIUM 1: 50-70% of required skills
+  const med1Count = Math.max(Math.ceil(totalSkills * (0.5 + Math.random() * 0.2)), 1);
+  
+  // MEDIUM 2: 40-60% (different subset)
+  const med2Count = Math.max(Math.ceil(totalSkills * (0.4 + Math.random() * 0.2)), 1);
+  
+  // LOW: 15-35% of required skills
+  const lowCount = Math.max(Math.ceil(totalSkills * (0.15 + Math.random() * 0.2)), 1);
 
   const profiles: Array<{ requiredCount: number; tier: 'high' | 'medium' | 'low' }> = [
     { requiredCount: highCount, tier: 'high' },
@@ -315,20 +337,14 @@ function generateCandidatesFromSkills(requiredSkills: string[]): RawCandidate[] 
     { requiredCount: lowCount, tier: 'low' },
   ];
 
-  // Maybe add a 5th candidate
-  if (Math.random() > 0.4) {
-    const extraCount = Math.max(1, Math.ceil(totalSkills * (0.3 + Math.random() * 0.5)));
-    profiles.push({ requiredCount: extraCount, tier: extraCount / totalSkills >= 0.7 ? 'high' : extraCount / totalSkills >= 0.4 ? 'medium' : 'low' });
-  }
-
   for (const profile of profiles) {
     const name = generateName(usedNames);
 
-    // Pick required skills this candidate has
+    // Pick required skills this candidate has (ensure different subsets for medium candidates)
     const candidateRequiredSkills = pickRandom(requiredSkills, Math.min(profile.requiredCount, totalSkills));
 
-    // Add 1-3 adjacent/extra skills from the same domain
-    const extraCount = 1 + Math.floor(Math.random() * 3);
+    // Add 1-2 adjacent/extra skills from the same domain (not too many)
+    const extraCount = profile.tier === 'high' ? 1 + Math.floor(Math.random() * 2) : Math.floor(Math.random() * 2);
     const extraSkills = adjacentSkills.length > 0
       ? pickRandom(adjacentSkills, Math.min(extraCount, adjacentSkills.length))
       : [];
@@ -376,26 +392,29 @@ async function generateCandidatesWithGemini(requiredSkills: string[]): Promise<R
             parts: [{
               text: `You are generating candidate profiles for a job that requires these skills: ${JSON.stringify(requiredSkills)}
 
-Generate 5 realistic candidate profiles. CRITICAL RULES:
+Generate 4 realistic candidate profiles with REALISTIC VARIATION. CRITICAL RULES:
+- NEVER include generic vague skills like "Frontend", "Backend", "Database", "Server", "API", "Markup"
+- Each candidate's skills MUST be REAL technologies (React, Node.js, MongoDB, etc.)
 - Each candidate's skills MUST be from the SAME technology domain as the required skills
-- One candidate should match 70-100% of required skills (HIGH match)
-- Two candidates should match 40-70% (MEDIUM match)
-- One candidate should match less than 40% (LOW match)
-- Extra skills must be ADJACENT to the required skills domain (e.g., if JD needs React, extra skills could be Redux, Next.js, NOT Java or Spring Boot)
-- Do NOT give candidates skills from unrelated domains
+- Candidate 1: match 70-100% of required skills (HIGH match - strong fit)
+- Candidate 2: match 40-70% (MEDIUM match - some gaps)
+- Candidate 3: match 40-70% (MEDIUM match - different subset of skills)
+- Candidate 4: match 10-40% (LOW match - wrong domain)
+- Extra skills must be ADJACENT to the required skills domain (e.g., if JD needs React, extra could be Redux, Next.js; if Node.js, extra could be Express, TypeScript)
+- Do NOT mix unrelated domains (e.g., no Java with React unless the JD mentions both)
 
 Each candidate must include:
 - name: realistic full name (diverse global backgrounds)
-- skills: array of skill strings (mix of matched required skills + adjacent extras)
+- skills: array of REAL technical skill strings (specific real tools, frameworks, languages - NEVER vague labels)
 - experience: string like "5 years"
 - title: realistic job title matching the domain
 - location: city and country
 - summary: 1-2 sentence professional summary
 
-Return ONLY a JSON array. No explanation, no markdown.`,
+Return ONLY a valid JSON array. No explanation, no markdown, no code blocks.`,
             }],
           }],
-          generationConfig: { temperature: 0.9, maxOutputTokens: 2048 },
+          generationConfig: { temperature: 0.7, maxOutputTokens: 2048 },
         }),
       }
     );
@@ -411,9 +430,10 @@ Return ONLY a JSON array. No explanation, no markdown.`,
         return parsed.map((c: Record<string, unknown>) => {
           const name = String(c.name || generateName(usedNames));
           usedNames.add(name);
+          const skills = Array.isArray(c.skills) ? c.skills.map(String) : [];
           return {
             name,
-            skills: Array.isArray(c.skills) ? c.skills.map(String) : [],
+            skills: removeGenericSkills(skills),
             experience: String(c.experience || pickOne(EXPERIENCE_LEVELS)),
             title: String(c.title || 'Software Engineer'),
             location: String(c.location || pickOne(LOCATIONS)),
