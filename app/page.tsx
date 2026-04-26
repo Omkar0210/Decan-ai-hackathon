@@ -141,7 +141,7 @@ export default function Home() {
                 />
                 <Button
                   onClick={handleRunAgent}
-                  disabled={loading || !jobDescription.trim()}
+                  disabled={loading}
                   className="w-full bg-blue-600 hover:bg-blue-700 text-white cursor-pointer transition-all duration-200 h-11 text-sm font-medium shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? (
